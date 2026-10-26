@@ -18,10 +18,9 @@ android {
         versionName = "0.3.0"
     }
     buildFeatures { compose = true }
-}
-
-kotlinOptions {
-    jvmTarget = "17"
+    kotlinOptions {
+        jvmTarget = "17"
+    }
 }
 
 dependencies {
