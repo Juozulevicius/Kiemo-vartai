@@ -15,6 +15,14 @@ import org.osmdroid.events.MapEventsReceiver
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Environment
+import androidx.core.content.FileProvider
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import android.os.Bundle
 import android.provider.ContactsContract
 import android.provider.OpenableColumns
@@ -63,6 +71,80 @@ private val Green = Color(0xFF006A44)
 private val Red = Color(0xFFC1272D)
 private val Charcoal = Color(0xFF363636)
 private val Cream = Color(0xFFF6F4EE)
+
+private const val GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/Juozulevicius/Vartu-Apps/releases/latest"
+private const val CURRENT_APP_VERSION = "0.4.1"
+
+private data class AppRelease(val tag: String, val name: String, val notes: String, val apkUrl: String?)
+
+private fun isNewerVersion(latestTag: String, currentVersion: String): Boolean {
+    fun parts(value: String) = value.trim().removePrefix("v").substringBefore("-")
+        .split(".").map { it.toIntOrNull() ?: 0 }
+    val latest = parts(latestTag)
+    val current = parts(currentVersion)
+    for (i in 0 until maxOf(latest.size, current.size)) {
+        val a = latest.getOrElse(i) { 0 }
+        val b = current.getOrElse(i) { 0 }
+        if (a != b) return a > b
+    }
+    return false
+}
+
+private suspend fun fetchLatestRelease(): AppRelease = withContext(Dispatchers.IO) {
+    val connection = (URL(GITHUB_LATEST_RELEASE_API).openConnection() as HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = 12000
+        readTimeout = 12000
+        setRequestProperty("Accept", "application/vnd.github+json")
+        setRequestProperty("User-Agent", "VartuValdymas-Android")
+    }
+    try {
+        if (connection.responseCode !in 200..299) throw IllegalStateException("GitHub atsakė: ${connection.responseCode}")
+        val json = connection.inputStream.bufferedReader(Charsets.UTF_8).use { JSONObject(it.readText()) }
+        val assets = json.optJSONArray("assets") ?: JSONArray()
+        var apkUrl: String? = null
+        for (i in 0 until assets.length()) {
+            val asset = assets.optJSONObject(i) ?: continue
+            if (asset.optString("name").endsWith(".apk", ignoreCase = true)) {
+                apkUrl = asset.optString("browser_download_url").takeIf { it.startsWith("https://") }
+                if (apkUrl != null) break
+            }
+        }
+        AppRelease(json.optString("tag_name"), json.optString("name").ifBlank { json.optString("tag_name") }, json.optString("body"), apkUrl)
+    } finally { connection.disconnect() }
+}
+
+private suspend fun downloadReleaseApk(context: android.content.Context, url: String): File = withContext(Dispatchers.IO) {
+    val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = 15000
+        readTimeout = 30000
+        setRequestProperty("User-Agent", "VartuValdymas-Android")
+    }
+    try {
+        if (connection.responseCode !in 200..299) throw IllegalStateException("APK atsisiųsti nepavyko: ${connection.responseCode}")
+        val dir = File(context.cacheDir, "updates").apply { mkdirs() }
+        val file = File(dir, "vartu-valdymas-update.apk")
+        connection.inputStream.use { input -> file.outputStream().use { output -> input.copyTo(output) } }
+        if (file.length() < 100_000) throw IllegalStateException("Atsisiųstas APK atrodo netinkamas")
+        file
+    } finally { connection.disconnect() }
+}
+
+private fun openApkInstaller(activity: android.app.Activity, apk: File) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
+        val settings = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}"))
+        activity.startActivity(settings)
+        Toast.makeText(activity, "Leisk diegti šios programos APK, tada dar kartą paspausk „Tikrinti atnaujinimus“.", Toast.LENGTH_LONG).show()
+        return
+    }
+    val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", apk)
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, "application/vnd.android.package-archive")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    activity.startActivity(intent)
+}
 
 data class Gate(val id: Long, val name: String, val phone: String, val lat: Double?, val lon: Double?, val radius: Int, val autoEnabled: Boolean)
 
@@ -226,6 +308,12 @@ private fun hashPin(pin: String, salt: ByteArray): String {
 @Composable
 fun GateApp() {
     val context = LocalContext.current
+    val activity = context as? android.app.Activity
+    val updateScope = rememberCoroutineScope()
+    var updateStatus by remember { mutableStateOf("Atnaujinimai tikrinami per GitHub Releases.") }
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var availableRelease by remember { mutableStateOf<AppRelease?>(null) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
     val prefs = remember { context.getSharedPreferences("gate_data", android.content.Context.MODE_PRIVATE) }
     var gates by remember { mutableStateOf(loadGates(prefs)) }
     var showAdd by remember { mutableStateOf(false) }
@@ -388,6 +476,35 @@ fun GateApp() {
                 }
                 Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
                     Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Programos atnaujinimas", color = Charcoal, fontWeight = FontWeight.Bold)
+                        Text("Dabartinė versija v$CURRENT_APP_VERSION. Naujos versijos ieškomos GitHub Releases skiltyje.", color = Charcoal.copy(alpha=.75f), style = MaterialTheme.typography.bodySmall)
+                        Button(onClick = {
+                            if (!checkingUpdate) {
+                            checkingUpdate = true
+                            updateStatus = "Tikrinama naujausia versija…"
+                            updateScope.launch {
+                                try {
+                                    val release = fetchLatestRelease()
+                                    availableRelease = release
+                                    if (release.tag.isNotBlank() && isNewerVersion(release.tag, CURRENT_APP_VERSION)) {
+                                        updateStatus = "Rasta versija ${release.tag}."
+                                        showUpdateDialog = true
+                                    } else {
+                                        updateStatus = "Naujesnės versijos nerasta. Įdiegta v$CURRENT_APP_VERSION."
+                                    }
+                                } catch (e: Exception) {
+                                    updateStatus = "Nepavyko patikrinti: ${e.message ?: "ryšio klaida"}"
+                                } finally { checkingUpdate = false }
+                            }
+                            }
+                        }, enabled = !checkingUpdate, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
+                            Text(if (checkingUpdate) "Tikrinama…" else "Tikrinti atnaujinimus")
+                        }
+                        Text(updateStatus, color = if(updateStatus.startsWith("Nepavyko")) Red else Charcoal.copy(alpha=.75f), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Atsarginė kopija", color = Charcoal, fontWeight = FontWeight.Bold)
                         Text("Eksportuok kopiją į failą arba pasirink Google Drive kaip išsaugojimo vietą. Debesijos paskyros duomenų programa pati nesinchronizuoja.", color = Charcoal.copy(alpha=.75f), style = MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -397,8 +514,37 @@ fun GateApp() {
                         if (statusMessage.isNotBlank()) Text(statusMessage, color = if(statusMessage.startsWith("Nepavyko")) Red else Green, style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                Text("Duomenys saugomi šiame telefone. Versija v0.3.7", color=Charcoal.copy(alpha=.6f), style=MaterialTheme.typography.labelSmall)
+                Text("Duomenys saugomi šiame telefone. Versija v$CURRENT_APP_VERSION", color=Charcoal.copy(alpha=.6f), style=MaterialTheme.typography.labelSmall)
             }
+        }
+        if (showUpdateDialog && availableRelease != null) {
+            val release = availableRelease!!
+            AlertDialog(
+                onDismissRequest = { showUpdateDialog = false },
+                title = { Text("Yra nauja versija: ${release.tag}") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(release.name)
+                        Text(release.notes.take(700).ifBlank { "Naujos versijos aprašymas nepateiktas." }, style = MaterialTheme.typography.bodySmall)
+                        if (release.apkUrl == null) Text("Šiam leidimui GitHub Releases nėra pridėto APK failo. Pirmiausia reikia paskelbti APK.", color = Red)
+                        Text("Atnaujinimas bus įdiegtas tik patvirtinus Android sistemos lange. Jei parašas nesutaps, Android neleis atnaujinti esamos programos.", color = Charcoal.copy(alpha=.75f), style = MaterialTheme.typography.bodySmall)
+                    }
+                },
+                confirmButton = {
+                    Button(enabled = release.apkUrl != null, onClick = {
+                        showUpdateDialog = false
+                        updateScope.launch {
+                            try {
+                                updateStatus = "Atsisiunčiamas APK…"
+                                val apk = downloadReleaseApk(context, release.apkUrl!!)
+                                updateStatus = "APK atsisiųstas. Atidaromas diegimas…"
+                                if (activity != null) openApkInstaller(activity, apk)
+                            } catch (e: Exception) { updateStatus = "Nepavyko atsisiųsti atnaujinimo: ${e.message ?: "klaida"}" }
+                        }
+                    }) { Text("Atsisiųsti ir diegti") }
+                },
+                dismissButton = { TextButton(onClick = { showUpdateDialog = false }) { Text("Vėliau") } }
+            )
         }
         if (showAdd) {
             AlertDialog(
