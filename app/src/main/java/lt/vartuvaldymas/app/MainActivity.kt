@@ -74,7 +74,7 @@ private val Charcoal = Color(0xFF363636)
 private val Cream = Color(0xFFF6F4EE)
 
 private const val GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/Juozulevicius/VartuValdymas-Releases/releases/latest"
-private const val CURRENT_APP_VERSION = "0.4.6"
+private const val CURRENT_APP_VERSION = "0.4.8"
 
 private data class AppRelease(val tag: String, val name: String, val notes: String, val apkUrl: String?)
 

@@ -14,8 +14,8 @@ android {
         applicationId = "lt.vartuvaldymas.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
-        versionName = "0.4.7"
+        versionCode = 15
+        versionName = "0.4.8"
     }
 
     compileOptions {

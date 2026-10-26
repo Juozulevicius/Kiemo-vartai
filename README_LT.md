@@ -81,3 +81,8 @@ Google Maps API raktas nebenaudojamas. Žemėlapiui naudojamas OpenStreetMap per
 Programėlėje yra mygtukas „Tikrinti atnaujinimus“. Jis tikrina `Juozulevicius/Vartu-Apps` GitHub Releases naujausią leidimą ir, radęs APK, pasiūlo jį atsisiųsti bei atidaryti Android diegimo patvirtinimą. Kad tai veiktų, leidimas turi turėti `.apk` failą.
 
 Pasirašytam leidimui naudok `.github/workflows/release-apk.yml` ir nustatyk GitHub Actions secrets, aprašytus `PAKEITIMAI_v0.4.3_LT.md`. Tas pats keystore turi būti saugomas visiems būsimiems leidimams.
+
+
+## v0.4.8 – bendras paketas
+
+Žr. `PAKEITIMAI_v0.4.8_LT.md`. Atnaujinimų tikrinimas naudoja viešą `VartuValdymas-Releases` saugyklą. APK publikavimas per tag `v*` aprašytas `.github/workflows/release-apk.yml`. Prieš kuriant leidimą būtina sėkmingai patikrinti `Build Android APK` ir užtikrinti, kad visi penki GitHub Actions secrets būtų nustatyti.
