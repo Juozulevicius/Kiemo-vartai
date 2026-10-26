@@ -10,9 +10,13 @@ import org.osmdroid.views.overlay.Marker as OsmMarker
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.events.MapEventsReceiver
 import android.Manifest
+import android.location.Location
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -39,7 +43,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
@@ -48,6 +51,7 @@ import androidx.compose.material.icons.filled.EditLocation
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.ui.res.painterResource
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
@@ -69,7 +73,7 @@ private val Charcoal = Color(0xFF363636)
 private val Cream = Color(0xFFF6F4EE)
 
 private const val GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/Juozulevicius/VartuValdymas-Releases/releases/latest"
-private const val CURRENT_APP_VERSION = "0.4.4"
+private const val CURRENT_APP_VERSION = "0.4.5"
 
 private data class AppRelease(val tag: String, val name: String, val notes: String, val apkUrl: String?)
 
@@ -618,8 +622,8 @@ fun GateApp() {
             )
         }
         if (showMapPicker) {
-            val initialLat = lat.toDoubleOrNull() ?: 54.6872
-            val initialLon = lon.toDoubleOrNull() ?: 25.2797
+            val initialLat = lat.toDoubleOrNull() ?: 55.0000
+            val initialLon = lon.toDoubleOrNull() ?: 24.0000
             MapPickerDialog(
                 initialLat = initialLat,
                 initialLon = initialLon,
@@ -677,13 +681,94 @@ private fun MapPickerDialog(
     onChoose: (GeoPoint) -> Unit
 ) {
     val context = LocalContext.current
+    val fusedLocationClient = remember(context) { LocationServices.getFusedLocationProviderClient(context) }
     var chosen by remember { mutableStateOf(GeoPoint(initialLat, initialLon)) }
     var mapRef by remember { mutableStateOf<MapView?>(null) }
+    var locationMessage by remember { mutableStateOf("Nustatoma dabartinė vieta…") }
+
+    fun putChosenMarker(map: MapView, point: GeoPoint, center: Boolean) {
+        chosen = point
+        map.overlays.removeAll { it is OsmMarker }
+        map.overlays.add(OsmMarker(map).apply {
+            position = point
+            setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
+            title = "Pasirinkta šlagbaumo vieta"
+            snippet = "Pasirinkta vieta"
+        })
+        if (center) map.controller.animateTo(point)
+        map.invalidate()
+    }
+
+    fun locateNow() {
+        val fineGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarseGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!fineGranted && !coarseGranted) {
+            locationMessage = "Leisk naudoti vietą arba paspausk vietos nustatymo mygtuką."
+            return
+        }
+        locationMessage = "Ieškoma dabartinės vietos…"
+        try {
+            fusedLocationClient.getCurrentLocation(
+                Priority.PRIORITY_HIGH_ACCURACY,
+                CancellationTokenSource().token
+            ).addOnSuccessListener { location: Location? ->
+                if (location != null) {
+                    val point = GeoPoint(location.latitude, location.longitude)
+                    mapRef?.let { putChosenMarker(it, point, true) } ?: run { chosen = point }
+                    locationMessage = if (location.accuracy <= 100f) {
+                        "Vieta nustatyta (tikslumas apie ${location.accuracy.toInt()} m)."
+                    } else {
+                        "Vieta nustatyta apytiksliai (±${location.accuracy.toInt()} m). Jei reikia, paliesk žemėlapį arba bandyk dar kartą."
+                    }
+                } else {
+                    locationMessage = "Vietos nustatyti nepavyko. Įjunk telefono vietos nustatymą ir bandyk dar kartą."
+                }
+            }.addOnFailureListener {
+                locationMessage = "Nepavyko nustatyti vietos. Patikrink telefono GPS ir bandyk dar kartą."
+            }
+        } catch (_: SecurityException) {
+            locationMessage = "Nėra leidimo nustatyti vietą. Paspausk vietos mygtuką ir suteik leidimą."
+        }
+    }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        if (result[Manifest.permission.ACCESS_FINE_LOCATION] == true || result[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
+            locateNow()
+        } else {
+            locationMessage = "Vietos leidimas nesuteiktas. Gali pasirinkti vietą paliesdamas žemėlapį."
+        }
+    }
+
+    fun requestOrLocate() {
+        val fineGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarseGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (fineGranted || coarseGranted) locateNow()
+        else locationPermissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+    }
+
+    LaunchedEffect(Unit) { requestOrLocate() }
+
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(20.dp), color = Color.White) {
-            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Pasirink šlagbaumo vietą", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Green)
-                Text("Paliesk žemėlapį, kad perkeltum žymeklį. Priartink dviem pirštais.", style = MaterialTheme.typography.bodySmall, color = Charcoal)
+            Column(
+                Modifier.fillMaxWidth().padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Pasirink šlagbaumo vietą",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Green
+                    )
+                    IconButton(onClick = { requestOrLocate() }) {
+                        Icon(Icons.Default.MyLocation, contentDescription = "Nustatyti dabartinę vietą", tint = Green)
+                    }
+                }
+                Text("Žemėlapis bando nustatyti tavo dabartinę vietą. Paliesk žemėlapį, kad pažymėtum šlagbaumo vietą.", style = MaterialTheme.typography.bodySmall, color = Charcoal)
                 AndroidView(
                     modifier = Modifier.fillMaxWidth().height(420.dp),
                     factory = { ctx ->
@@ -692,29 +777,15 @@ private fun MapPickerDialog(
                             mapRef = this
                             setTileSource(TileSourceFactory.MAPNIK)
                             setMultiTouchControls(true)
-                            controller.setZoom(16.0)
+                            controller.setZoom(15.0)
                             controller.setCenter(chosen)
                             overlays.add(MapEventsOverlay(object : MapEventsReceiver {
                                 override fun singleTapConfirmedHelper(p: GeoPoint): Boolean {
-                                    chosen = p
-                                    mapRef?.overlays?.removeAll { it is OsmMarker }
-                                    mapRef?.overlays?.add(OsmMarker(this@apply).apply {
-                                        position = p
-                                        setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
-                                        title = "Pasirinkta šlagbaumo vieta"
-                                    })
-                                    mapRef?.invalidate()
+                                    putChosenMarker(this@apply, p, false)
                                     return true
                                 }
                                 override fun longPressHelper(p: GeoPoint): Boolean {
-                                    chosen = p
-                                    mapRef?.overlays?.removeAll { it is OsmMarker }
-                                    mapRef?.overlays?.add(OsmMarker(this@apply).apply {
-                                        position = p
-                                        setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
-                                        title = "Pasirinkta šlagbaumo vieta"
-                                    })
-                                    mapRef?.invalidate()
+                                    putChosenMarker(this@apply, p, false)
                                     return true
                                 }
                             }))
@@ -725,8 +796,12 @@ private fun MapPickerDialog(
                             })
                         }
                     },
-                    update = { it.invalidate() }
+                    update = { map ->
+                        if (mapRef !== map) mapRef = map
+                        map.invalidate()
+                    }
                 )
+                Text(locationMessage, style = MaterialTheme.typography.bodySmall, color = if (locationMessage.startsWith("Nepavyko") || locationMessage.startsWith("Vietos leidimas")) Red else Green)
                 Text("Platuma: %.6f   Ilguma: %.6f".format(chosen.latitude, chosen.longitude), style = MaterialTheme.typography.bodySmall, color = Charcoal)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Atšaukti", maxLines = 1) }
