@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AuthenticationGate(activity: ComponentActivity) {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("gate_security", ComponentActivity.MODE_PRIVATE) }
+    val prefs = remember { context.getSharedPreferences("gate_security", android.content.Context.MODE_PRIVATE) }
     var unlocked by remember { mutableStateOf(false) }
     var setupMode by remember { mutableStateOf(prefs.getString("pin_hash", null) == null) }
     var pin by remember { mutableStateOf("") }
@@ -212,7 +212,7 @@ private fun hashPin(pin: String, salt: ByteArray): String {
 @Composable
 fun GateApp() {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("gate_data", ComponentActivity.MODE_PRIVATE) }
+    val prefs = remember { context.getSharedPreferences("gate_data", android.content.Context.MODE_PRIVATE) }
     var gates by remember { mutableStateOf(loadGates(prefs)) }
     var showAdd by remember { mutableStateOf(false) }
     var editGate by remember { mutableStateOf<Gate?>(null) }
@@ -240,6 +240,8 @@ fun GateApp() {
             } catch (e: Exception) { statusMessage = "Nepavyko sukurti kopijos: ${e.message ?: "klaida"}" }
         }
     }
+    fun save() { saveGates(prefs, gates) }
+
     val importBackup = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             try {
@@ -255,7 +257,6 @@ fun GateApp() {
         }
     }
 
-    fun save() { saveGates(prefs, gates) }
     val contactPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickContact()) { uri ->
         if (uri != null) {
             val cursor = context.contentResolver.query(uri, arrayOf(ContactsContract.Contacts._ID), null, null, null)
@@ -299,7 +300,7 @@ fun GateApp() {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Saugumo režimas", color = Charcoal, fontWeight = FontWeight.Bold)
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1)) {
+                            Column(Modifier.weight(1f)) {
                                 Text("Automatinis skambinimas", color = Charcoal)
                                 Text("IŠJUNGTA – automatika dar nepatikrinta", color = Red, style = MaterialTheme.typography.bodySmall)
                             }

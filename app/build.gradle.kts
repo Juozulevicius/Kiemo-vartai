@@ -1,25 +1,36 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
 android {
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
     namespace = "lt.vartuvaldymas.app"
     compileSdk = 35
+
     defaultConfig {
         applicationId = "lt.vartuvaldymas.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.3.4"
     }
-    buildFeatures { compose = true }
-    kotlinOptions {
-        jvmTarget = "17"
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        compose = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 
@@ -38,4 +49,3 @@ dependencies {
     implementation("com.google.android.gms:play-services-maps:19.0.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
-

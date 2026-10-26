@@ -21,3 +21,6 @@ Pastabos:
 Projekte pridėta `.github/workflows/build-apk.yml`. Įkėlus šio projekto turinį į GitHub saugyklos `main` šaką, darbo eiga turėtų prasidėti automatiškai; ją taip pat galima paleisti per **Actions → Build Android APK → Run workflow**. Sėkmingo darbo rezultatas bus **Artifacts → VartuValdymas-debug-apk**.
 
 Pastaba: darbo eiga sugeneruoja Gradle Wrapper, jei `gradlew` nėra. Tai nepatvirtina, kad Android programos Kotlin kodas susikompiliuos; pirmasis paleidimas gali parodyti kodo ar priklausomybių klaidų, kurias reikės taisyti.
+
+### v0.3.4 pastaba
+Nauja darbo eiga naudoja GitHub Actions aplinkoje įdiegtą Gradle 8.9 tiesiogiai. `gradlew` ir `gradle-wrapper.jar` šiai darbo eigai nebūtini. Įsitikink, kad GitHub saugykloje atnaujinti tiek `app/build.gradle.kts`, tiek `.github/workflows/build-apk.yml`.
