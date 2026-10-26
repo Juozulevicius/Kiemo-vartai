@@ -66,3 +66,11 @@ Tai pradinis kūrimo projektas, ne galutinė saugiai ištestuota programėlė.
 - Skambučių istorija.
 
 Šis projektas šiame vykdymo etape nebuvo sukompiliuotas ar išbandytas fiziniame telefone. Būtina patikrinti Android Studio, o prieš bet kokį realų automatinį skambinimą atlikti saugos bandymus.
+
+## v0.3.7: Google Maps API rakto nustatymas
+
+Šioje versijoje įdėtas Google Maps SDK žemėlapio komponentas su vartų vietos žymekliu. Google reikalauja API rakto. Prieš kompiliuojant pakeiskite `app/src/main/res/values/strings.xml` eilutės `google_maps_key` reikšmę iš `PASTE_YOUR_GOOGLE_MAPS_API_KEY_HERE` į savo Google Maps SDK for Android API raktą. Raktą reikia sukurti Google Cloud Console, įjungti atsiskaitymą ir Maps SDK for Android, tada apriboti pagal Android programėlę `lt.vartuvaldymas.app` bei pasirašymo SHA-1. Jei rakto nėra, žemėlapio vietoje gali būti tuščias fonas.
+
+
+## v0.4.0 – OpenStreetMap
+Google Maps API raktas nebenaudojamas. Žemėlapiui naudojamas OpenStreetMap per osmdroid; reikia interneto ryšio. Prieš viešą platinimą patikrink OpenStreetMap plytelių serverio naudojimo taisykles ir prireikus pasirink specializuotą tiekėją.

@@ -14,8 +14,8 @@ android {
         applicationId = "lt.vartuvaldymas.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.3.6"
+        versionCode = 7
+        versionName = "0.4.0"
     }
 
     compileOptions {
@@ -46,6 +46,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("com.google.android.gms:play-services-location:21.3.0")
-    implementation("com.google.android.gms:play-services-maps:19.0.0")
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

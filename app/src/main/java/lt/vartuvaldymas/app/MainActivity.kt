@@ -1,6 +1,17 @@
 package lt.vartuvaldymas.app
 
 import android.Manifest
+import android.graphics.Color as AndroidColor
+import android.view.MotionEvent
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker as OsmMarker
+import org.osmdroid.views.overlay.MapEventsOverlay
+import org.osmdroid.events.MapEventsReceiver
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -32,6 +43,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EditLocation
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material3.*
@@ -216,6 +229,7 @@ fun GateApp() {
     val prefs = remember { context.getSharedPreferences("gate_data", android.content.Context.MODE_PRIVATE) }
     var gates by remember { mutableStateOf(loadGates(prefs)) }
     var showAdd by remember { mutableStateOf(false) }
+    var showMapPicker by remember { mutableStateOf(false) }
     var editGate by remember { mutableStateOf<Gate?>(null) }
     var name by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
@@ -289,7 +303,7 @@ fun GateApp() {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Column { Text("Mano šlagbaumai", fontWeight = FontWeight.Bold, color = Color.White); Text("Vartų valdymas", color = Color.White.copy(alpha=.8f), style = MaterialTheme.typography.labelSmall) } },
+                    title = { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) { Icon(painter = painterResource(id = R.mipmap.ic_launcher), contentDescription = "Vartų valdymas", tint = Color.Unspecified, modifier = Modifier.size(38.dp)); Column { Text("Mano šlagbaumai", fontWeight = FontWeight.Bold, color = Color.White); Text("Vartų valdymas", color = Color.White.copy(alpha=.8f), style = MaterialTheme.typography.labelSmall) } } },
                     actions = { IconButton(onClick = { showAdd = true; editGate = null; name=""; phone=""; lat=""; lon=""; radius=10; auto=false }) { Icon(Icons.Default.Add, "Pridėti", tint = Yellow) } },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Green)
                 )
@@ -332,23 +346,40 @@ fun GateApp() {
                                         }
                                         IconButton(onClick = { gates = gates.filterNot { it.id == gate.id }; save() }) { Icon(Icons.Default.Delete, "Ištrinti", tint=Red) }
                                     }
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        OutlinedButton(onClick = {
-                                            val uri = if (gate.lat != null && gate.lon != null) Uri.parse("geo:${gate.lat},${gate.lon}?q=${gate.lat},${gate.lon}(${Uri.encode(gate.name)})") else Uri.parse("geo:0,0?q=${Uri.encode(gate.name)}")
-                                            try { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) } catch (_: Exception) { statusMessage = "Žemėlapio programėlė nerasta." }
-                                        }) { Icon(Icons.Default.Map, null); Text("Žemėlapis", color=Charcoal) }
-                                        Button(onClick = {
-                                            pendingCall = gate.phone
-                                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
-                                                try { context.startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:${Uri.encode(gate.phone)}"))) }
-                                                catch (_: Exception) { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(gate.phone)}"))) }
-                                            } else callPermission.launch(Manifest.permission.CALL_PHONE)
-                                        }, modifier=Modifier.weight(1f), colors=ButtonDefaults.buttonColors(containerColor=Green)) {
-                                            Icon(Icons.Default.Call, null); Spacer(Modifier.width(6.dp)); Text("Skambinti")
+                                    if (gate.lat != null && gate.lon != null) {
+                                        Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Cream)) {
+                                            Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(Icons.Default.LocationOn, contentDescription = null, tint = Green)
+                                                    Text("Vartų vieta", modifier = Modifier.weight(1f), color = Charcoal, fontWeight = FontWeight.SemiBold)
+                                                    TextButton(onClick = {
+                                                        val uri = Uri.parse("https://www.openstreetmap.org/?mlat=${gate.lat}&mlon=${gate.lon}#map=17/${gate.lat}/${gate.lon}")
+                                                        try { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) } catch (_: Exception) { statusMessage = "Nepavyko atidaryti žemėlapio." }
+                                                    }) { Text("Atidaryti žemėlapį", color = Green, maxLines = 1) }
+                                                }
+                                                GateMapPreview(lat = gate.lat, lon = gate.lon, title = gate.name, modifier = Modifier.fillMaxWidth().height(150.dp))
+                                            }
                                         }
+                                    } else {
+                                        Text("Vartų vieta nenustatyta. Redaguok vartus ir įvesk koordinates.", color = Charcoal.copy(alpha=.7f), style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    Button(onClick = {
+                                        pendingCall = gate.phone
+                                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
+                                            try { context.startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:${Uri.encode(gate.phone)}"))) }
+                                            catch (_: Exception) { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(gate.phone)}"))) }
+                                        } else callPermission.launch(Manifest.permission.CALL_PHONE)
+                                    }, modifier=Modifier.fillMaxWidth().height(52.dp), colors=ButtonDefaults.buttonColors(containerColor=Green)) {
+                                        Icon(Icons.Default.Call, null); Spacer(Modifier.width(8.dp)); Text("Skambinti", maxLines = 1, softWrap = false)
+                                    }
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedButton(onClick = {
+                                            val uri = if (gate.lat != null && gate.lon != null) Uri.parse("https://www.openstreetmap.org/?mlat=${gate.lat}&mlon=${gate.lon}#map=17/${gate.lat}/${gate.lon}") else Uri.parse("https://www.openstreetmap.org/search?query=${Uri.encode(gate.name)}")
+                                            try { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) } catch (_: Exception) { statusMessage = "Nepavyko atidaryti žemėlapio." }
+                                        }, modifier=Modifier.weight(1f).height(48.dp)) { Icon(Icons.Default.Map, null); Spacer(Modifier.width(5.dp)); Text("Žemėlapis", maxLines = 1, softWrap = false, color=Charcoal) }
                                         OutlinedButton(onClick = {
                                             editGate=gate; name=gate.name; phone=gate.phone; lat=gate.lat?.toString() ?: ""; lon=gate.lon?.toString() ?: ""; radius=gate.radius; auto=gate.autoEnabled; showAdd=true
-                                        }) { Text("Redaguoti", color=Charcoal) }
+                                        }, modifier=Modifier.weight(1f).height(48.dp)) { Text("Redaguoti", maxLines = 1, softWrap = false, color=Charcoal) }
                                     }
                                 }
                             }
@@ -366,7 +397,7 @@ fun GateApp() {
                         if (statusMessage.isNotBlank()) Text(statusMessage, color = if(statusMessage.startsWith("Nepavyko")) Red else Green, style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                Text("Duomenys saugomi šiame telefone. Versija v0.3.0", color=Charcoal.copy(alpha=.6f), style=MaterialTheme.typography.labelSmall)
+                Text("Duomenys saugomi šiame telefone. Versija v0.3.7", color=Charcoal.copy(alpha=.6f), style=MaterialTheme.typography.labelSmall)
             }
         }
         if (showAdd) {
@@ -382,7 +413,15 @@ fun GateApp() {
                         }
                         OutlinedTextField(lat, { lat=it }, label={Text("Platuma (neprivaloma)")}, singleLine=true)
                         OutlinedTextField(lon, { lon=it }, label={Text("Ilguma (neprivaloma)")}, singleLine=true)
-                        Text("Vietą žemėlapyje galėsime pasirinkti kitame etape. Kol kas galima įvesti koordinates.", style=MaterialTheme.typography.bodySmall, color=Charcoal)
+                        OutlinedButton(
+                            onClick = { showMapPicker = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Map, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Pasirinkti vietą žemėlapyje", maxLines = 1, softWrap = false)
+                        }
+                        Text("Žemėlapį ir vietos žymeklį galima perkelti. Pasirinkus vietą, koordinatės įrašomos automatiškai.", style=MaterialTheme.typography.bodySmall, color=Charcoal)
                         Text("Automatikos atstumas: $radius m")
                         Slider(value=radius.toFloat(), onValueChange={radius=it.toInt()}, valueRange=5f..100f, steps=18)
                         Row(verticalAlignment=Alignment.CenterVertically) {
@@ -402,6 +441,125 @@ fun GateApp() {
                 }, colors=ButtonDefaults.buttonColors(containerColor=Green)) { Text("Išsaugoti") } },
                 dismissButton = { TextButton(onClick={showAdd=false}) { Text("Atšaukti") } }
             )
+        }
+        if (showMapPicker) {
+            val initialLat = lat.toDoubleOrNull() ?: 54.6872
+            val initialLon = lon.toDoubleOrNull() ?: 25.2797
+            MapPickerDialog(
+                initialLat = initialLat,
+                initialLon = initialLon,
+                onDismiss = { showMapPicker = false },
+                onChoose = { point ->
+                    lat = point.latitude.toString()
+                    lon = point.longitude.toString()
+                    showMapPicker = false
+                }
+            )
+        }
+    }
+}
+
+
+@Composable
+private fun GateMapPreview(lat: Double, lon: Double, title: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    AndroidView(
+        modifier = modifier,
+        factory = {
+            Configuration.getInstance().userAgentValue = context.packageName
+            MapView(context).apply {
+                setTileSource(TileSourceFactory.MAPNIK)
+                setMultiTouchControls(true)
+                controller.setZoom(16.0)
+                controller.setCenter(GeoPoint(lat, lon))
+                overlays.add(OsmMarker(this).apply {
+                    position = GeoPoint(lat, lon)
+                    setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
+                    this.title = title
+                    snippet = "Šlagbaumo vieta"
+                })
+            }
+        },
+        update = { map ->
+            map.controller.setCenter(GeoPoint(lat, lon))
+            map.overlays.removeAll { it is OsmMarker }
+            map.overlays.add(OsmMarker(map).apply {
+                position = GeoPoint(lat, lon)
+                setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
+                this.title = title
+                snippet = "Šlagbaumo vieta"
+            })
+            map.invalidate()
+        }
+    )
+}
+
+@Composable
+private fun MapPickerDialog(
+    initialLat: Double,
+    initialLon: Double,
+    onDismiss: () -> Unit,
+    onChoose: (GeoPoint) -> Unit
+) {
+    val context = LocalContext.current
+    var chosen by remember { mutableStateOf(GeoPoint(initialLat, initialLon)) }
+    var mapRef by remember { mutableStateOf<MapView?>(null) }
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(20.dp), color = Color.White) {
+            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Pasirink šlagbaumo vietą", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Green)
+                Text("Paliesk žemėlapį, kad perkeltum žymeklį. Priartink dviem pirštais.", style = MaterialTheme.typography.bodySmall, color = Charcoal)
+                AndroidView(
+                    modifier = Modifier.fillMaxWidth().height(420.dp),
+                    factory = { ctx ->
+                        Configuration.getInstance().userAgentValue = ctx.packageName
+                        MapView(ctx).apply {
+                            mapRef = this
+                            setTileSource(TileSourceFactory.MAPNIK)
+                            setMultiTouchControls(true)
+                            controller.setZoom(16.0)
+                            controller.setCenter(chosen)
+                            overlays.add(MapEventsOverlay(object : MapEventsReceiver {
+                                override fun singleTapConfirmedHelper(p: GeoPoint): Boolean {
+                                    chosen = p
+                                    mapRef?.overlays?.removeAll { it is OsmMarker }
+                                    mapRef?.overlays?.add(OsmMarker(this@apply).apply {
+                                        position = p
+                                        setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
+                                        title = "Pasirinkta šlagbaumo vieta"
+                                    })
+                                    mapRef?.invalidate()
+                                    return true
+                                }
+                                override fun longPressHelper(p: GeoPoint): Boolean {
+                                    chosen = p
+                                    mapRef?.overlays?.removeAll { it is OsmMarker }
+                                    mapRef?.overlays?.add(OsmMarker(this@apply).apply {
+                                        position = p
+                                        setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
+                                        title = "Pasirinkta šlagbaumo vieta"
+                                    })
+                                    mapRef?.invalidate()
+                                    return true
+                                }
+                            }))
+                            overlays.add(OsmMarker(this).apply {
+                                position = chosen
+                                setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
+                                title = "Pasirinkta šlagbaumo vieta"
+                            })
+                        }
+                    },
+                    update = { it.invalidate() }
+                )
+                Text("Platuma: %.6f   Ilguma: %.6f".format(chosen.latitude, chosen.longitude), style = MaterialTheme.typography.bodySmall, color = Charcoal)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Atšaukti", maxLines = 1) }
+                    Button(onClick = { onChoose(chosen) }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
+                        Text("Naudoti vietą", maxLines = 1, softWrap = false)
+                    }
+                }
+            }
         }
     }
 }
