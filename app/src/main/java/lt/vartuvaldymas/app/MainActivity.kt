@@ -41,6 +41,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -73,7 +74,7 @@ private val Charcoal = Color(0xFF363636)
 private val Cream = Color(0xFFF6F4EE)
 
 private const val GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/Juozulevicius/VartuValdymas-Releases/releases/latest"
-private const val CURRENT_APP_VERSION = "0.4.5"
+private const val CURRENT_APP_VERSION = "0.4.6"
 
 private data class AppRelease(val tag: String, val name: String, val notes: String, val apkUrl: String?)
 
@@ -336,15 +337,36 @@ fun GateApp() {
     var statusMessage by remember { mutableStateOf("") }
 
     fun performDirectCall(number: String) {
+        val callIntent = Intent(Intent.ACTION_CALL).apply {
+            data = Uri.fromParts("tel", number, null)
+        }
         try {
-            context.startActivity(Intent(Intent.ACTION_CALL).apply {
-                data = Uri.fromParts("tel", number, null)
-            })
-            statusMessage = "Pradedamas skambutis…"
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
+                statusMessage = "Skambinimo leidimas nesuteiktas. Paspausk „Skambinti“ dar kartą ir leisk skambinti."
+                Toast.makeText(context, statusMessage, Toast.LENGTH_LONG).show()
+                return
+            }
+            context.startActivity(callIntent)
+            statusMessage = "Pradedamas skambutis į $number…"
+            Toast.makeText(context, statusMessage, Toast.LENGTH_SHORT).show()
         } catch (e: SecurityException) {
-            statusMessage = "Nepavyko pradėti skambučio. Patikrink CALL_PHONE leidimą."
+            statusMessage = "Android neleido pradėti skambučio. Atidaromas rinkiklis."
+            Toast.makeText(context, statusMessage, Toast.LENGTH_LONG).show()
+            try {
+                context.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", number, null)))
+            } catch (_: Exception) {
+                statusMessage = "Nepavyko atidaryti telefono rinkiklio. Patikrink SIM kortelę ir telefono programą."
+                Toast.makeText(context, statusMessage, Toast.LENGTH_LONG).show()
+            }
         } catch (e: Exception) {
-            statusMessage = "Nepavyko pradėti skambučio: ${e.message ?: "patikrink SIM kortelę ir telefono ryšį"}"
+            statusMessage = "Nepavyko pradėti skambučio. Atidaromas rinkiklis."
+            Toast.makeText(context, statusMessage, Toast.LENGTH_LONG).show()
+            try {
+                context.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", number, null)))
+            } catch (_: Exception) {
+                statusMessage = "Nepavyko atidaryti telefono rinkiklio."
+                Toast.makeText(context, statusMessage, Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -354,12 +376,13 @@ fun GateApp() {
         if (granted && number != null) {
             performDirectCall(number)
         } else if (number != null) {
-            // Safe fallback if the user declines direct-call permission.
+            statusMessage = "Skambinimo leidimas nesuteiktas – atidaromas rinkiklis."
+            Toast.makeText(context, statusMessage, Toast.LENGTH_LONG).show()
             try {
-                context.startActivity(Intent(Intent.ACTION_DIAL).apply { data = Uri.fromParts("tel", number, null) })
-                statusMessage = "Tiesioginio skambinimo leidimas nesuteiktas. Atidarytas telefono rinkiklis."
-            } catch (e: Exception) {
-                statusMessage = "Nepavyko atidaryti telefono rinkiklio."
+                context.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", number, null)))
+            } catch (_: Exception) {
+                statusMessage = "Nepavyko atidaryti rinkiklio. Patikrink, ar telefone yra skambinimo programa."
+                Toast.makeText(context, statusMessage, Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -421,6 +444,8 @@ fun GateApp() {
             performDirectCall(normalized)
         } else {
             pendingCall = normalized
+            statusMessage = "Prašoma leidimo skambinti…"
+            Toast.makeText(context, statusMessage, Toast.LENGTH_SHORT).show()
             callPermissionLauncher.launch(Manifest.permission.CALL_PHONE)
         }
     }
@@ -492,6 +517,9 @@ fun GateApp() {
                                     }
                                     Button(onClick = { dialGateNumber(gate.phone) }, modifier=Modifier.fillMaxWidth().height(52.dp), colors=ButtonDefaults.buttonColors(containerColor=Green)) {
                                         Icon(Icons.Default.Call, null); Spacer(Modifier.width(8.dp)); Text("Skambinti", maxLines = 1, softWrap = false)
+                                    }
+                                    if (statusMessage.isNotBlank()) {
+                                        Text(statusMessage, color = if (statusMessage.startsWith("Nepavyko") || statusMessage.contains("nesuteiktas")) Red else Green, style = MaterialTheme.typography.bodySmall)
                                     }
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         OutlinedButton(onClick = {
