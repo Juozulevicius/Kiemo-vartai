@@ -76,8 +76,8 @@ Tai pradinis kūrimo projektas, ne galutinė saugiai ištestuota programėlė.
 Google Maps API raktas nebenaudojamas. Žemėlapiui naudojamas OpenStreetMap per osmdroid; reikia interneto ryšio. Prieš viešą platinimą patikrink OpenStreetMap plytelių serverio naudojimo taisykles ir prireikus pasirink specializuotą tiekėją.
 
 
-## Programėlės atnaujinimas (v0.4.1)
+## Programėlės atnaujinimas (v0.4.3)
 
 Programėlėje yra mygtukas „Tikrinti atnaujinimus“. Jis tikrina `Juozulevicius/Vartu-Apps` GitHub Releases naujausią leidimą ir, radęs APK, pasiūlo jį atsisiųsti bei atidaryti Android diegimo patvirtinimą. Kad tai veiktų, leidimas turi turėti `.apk` failą.
 
-Pasirašytam leidimui naudok `.github/workflows/release-apk.yml` ir nustatyk GitHub Actions secrets, aprašytus `PAKEITIMAI_v0.4.1_LT.md`. Tas pats keystore turi būti saugomas visiems būsimiems leidimams.
+Pasirašytam leidimui naudok `.github/workflows/release-apk.yml` ir nustatyk GitHub Actions secrets, aprašytus `PAKEITIMAI_v0.4.3_LT.md`. Tas pats keystore turi būti saugomas visiems būsimiems leidimams.

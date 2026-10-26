@@ -1,8 +1,5 @@
 package lt.vartuvaldymas.app
 
-import android.Manifest
-import android.graphics.Color as AndroidColor
-import android.view.MotionEvent
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import org.osmdroid.config.Configuration
@@ -12,10 +9,10 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker as OsmMarker
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.events.MapEventsReceiver
+import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Environment
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -41,8 +38,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -72,8 +67,8 @@ private val Red = Color(0xFFC1272D)
 private val Charcoal = Color(0xFF363636)
 private val Cream = Color(0xFFF6F4EE)
 
-private const val GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/Juozulevicius/Vartu-Apps/releases/latest"
-private const val CURRENT_APP_VERSION = "0.4.1"
+private const val GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/Juozulevicius/VartuValdymas-Releases/releases/latest"
+private const val CURRENT_APP_VERSION = "0.4.4"
 
 private data class AppRelease(val tag: String, val name: String, val notes: String, val apkUrl: String?)
 
@@ -99,7 +94,13 @@ private suspend fun fetchLatestRelease(): AppRelease = withContext(Dispatchers.I
         setRequestProperty("User-Agent", "VartuValdymas-Android")
     }
     try {
-        if (connection.responseCode !in 200..299) throw IllegalStateException("GitHub atsakė: ${connection.responseCode}")
+        if (connection.responseCode !in 200..299) {
+            when (connection.responseCode) {
+                404 -> throw IllegalStateException("GitHub Release nerastas. Patikrink, ar Kiemo-vartai saugykla vieša ir ar joje paskelbtas Release su APK.")
+                403 -> throw IllegalStateException("GitHub laikinai apribojo užklausas. Bandyk vėliau.")
+                else -> throw IllegalStateException("GitHub atsakė: ${connection.responseCode}")
+            }
+        }
         val json = connection.inputStream.bufferedReader(Charsets.UTF_8).use { JSONObject(it.readText()) }
         val assets = json.optJSONArray("assets") ?: JSONArray()
         var apkUrl: String? = null
@@ -329,6 +330,35 @@ fun GateApp() {
     var pendingCall by remember { mutableStateOf<String?>(null) }
     var statusMessage by remember { mutableStateOf("") }
 
+    fun performDirectCall(number: String) {
+        try {
+            context.startActivity(Intent(Intent.ACTION_CALL).apply {
+                data = Uri.fromParts("tel", number, null)
+            })
+            statusMessage = "Pradedamas skambutis…"
+        } catch (e: SecurityException) {
+            statusMessage = "Nepavyko pradėti skambučio. Patikrink CALL_PHONE leidimą."
+        } catch (e: Exception) {
+            statusMessage = "Nepavyko pradėti skambučio: ${e.message ?: "patikrink SIM kortelę ir telefono ryšį"}"
+        }
+    }
+
+    val callPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val number = pendingCall
+        pendingCall = null
+        if (granted && number != null) {
+            performDirectCall(number)
+        } else if (number != null) {
+            // Safe fallback if the user declines direct-call permission.
+            try {
+                context.startActivity(Intent(Intent.ACTION_DIAL).apply { data = Uri.fromParts("tel", number, null) })
+                statusMessage = "Tiesioginio skambinimo leidimas nesuteiktas. Atidarytas telefono rinkiklis."
+            } catch (e: Exception) {
+                statusMessage = "Nepavyko atidaryti telefono rinkiklio."
+            }
+        }
+    }
+
     val exportBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) {
             try {
@@ -376,16 +406,20 @@ fun GateApp() {
             }
         }
     }
-    val callPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        val number = pendingCall
-        if (granted && !number.isNullOrBlank()) {
-            try { context.startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:${Uri.encode(number)}"))) }
-            catch (_: Exception) { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(number)}"))) }
-        } else if (!number.isNullOrBlank()) {
-            context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(number)}")))
+    fun dialGateNumber(rawNumber: String) {
+        val normalized = rawNumber.trim().replace(Regex("[\\s()\\-]"), "")
+        if (normalized.isBlank() || normalized.count { it.isDigit() } < 3) {
+            statusMessage = "Telefono numeris neteisingas. Redaguok šlagbaumą ir patikrink numerį."
+            return
         }
-        pendingCall = null
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
+            performDirectCall(normalized)
+        } else {
+            pendingCall = normalized
+            callPermissionLauncher.launch(Manifest.permission.CALL_PHONE)
+        }
     }
+
 
     MaterialTheme(colorScheme = lightColorScheme(primary = Green, secondary = Yellow, error = Red, background = Cream, surface = Color.White)) {
         Scaffold(
@@ -398,7 +432,7 @@ fun GateApp() {
             },
             containerColor = Cream
         ) { padding ->
-            Column(Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
+            Column(Modifier.padding(padding).fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(18.dp)) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Saugumo režimas", color = Charcoal, fontWeight = FontWeight.Bold)
@@ -409,12 +443,11 @@ fun GateApp() {
                             }
                             Switch(checked = false, onCheckedChange = { testMode = true }, enabled = false, colors = SwitchDefaults.colors(checkedTrackColor = Green))
                         }
-                        Text("Rankinis skambinimas veikia. GPS geozonos ir automatinio skambinimo variklis dar neįdiegtas; automatikos jungikliai nieko automatiškai nedaro.", color = Red, style = MaterialTheme.typography.bodySmall)
+                        Text("Rankinis skambinimas atidaro telefono rinkiklį. GPS geozonos ir automatinio skambinimo variklis dar neįdiegtas; automatika išjungta.", color = Red, style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                Spacer(Modifier.height(12.dp))
                 if (gates.isEmpty()) {
-                    Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 20.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Icon(Icons.Default.EditLocation, null, tint = Green, modifier = Modifier.size(48.dp))
                             Text("Dar nėra pridėtų šlagbaumų", color = Charcoal, fontWeight = FontWeight.SemiBold)
@@ -422,8 +455,8 @@ fun GateApp() {
                         }
                     }
                 } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.weight(1f)) {
-                        items(gates, key = { it.id }) { gate ->
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        gates.forEach { gate ->
                             Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -446,18 +479,13 @@ fun GateApp() {
                                                     }) { Text("Atidaryti žemėlapį", color = Green, maxLines = 1) }
                                                 }
                                                 GateMapPreview(lat = gate.lat, lon = gate.lon, title = gate.name, modifier = Modifier.fillMaxWidth().height(150.dp))
+                                                Text("© OpenStreetMap contributors", style = MaterialTheme.typography.labelSmall, color = Charcoal.copy(alpha = .65f))
                                             }
                                         }
                                     } else {
                                         Text("Vartų vieta nenustatyta. Redaguok vartus ir įvesk koordinates.", color = Charcoal.copy(alpha=.7f), style = MaterialTheme.typography.bodySmall)
                                     }
-                                    Button(onClick = {
-                                        pendingCall = gate.phone
-                                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
-                                            try { context.startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:${Uri.encode(gate.phone)}"))) }
-                                            catch (_: Exception) { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(gate.phone)}"))) }
-                                        } else callPermission.launch(Manifest.permission.CALL_PHONE)
-                                    }, modifier=Modifier.fillMaxWidth().height(52.dp), colors=ButtonDefaults.buttonColors(containerColor=Green)) {
+                                    Button(onClick = { dialGateNumber(gate.phone) }, modifier=Modifier.fillMaxWidth().height(52.dp), colors=ButtonDefaults.buttonColors(containerColor=Green)) {
                                         Icon(Icons.Default.Call, null); Spacer(Modifier.width(8.dp)); Text("Skambinti", maxLines = 1, softWrap = false)
                                     }
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -477,7 +505,7 @@ fun GateApp() {
                 Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
                     Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Programos atnaujinimas", color = Charcoal, fontWeight = FontWeight.Bold)
-                        Text("Dabartinė versija v$CURRENT_APP_VERSION. Naujos versijos ieškomos GitHub Releases skiltyje.", color = Charcoal.copy(alpha=.75f), style = MaterialTheme.typography.bodySmall)
+                        Text("Dabartinė versija v$CURRENT_APP_VERSION. Naujos versijos ieškomos viešoje GitHub Releases skiltyje.", color = Charcoal.copy(alpha=.75f), style = MaterialTheme.typography.bodySmall)
                         Button(onClick = {
                             if (!checkingUpdate) {
                             checkingUpdate = true
