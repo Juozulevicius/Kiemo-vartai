@@ -12,6 +12,7 @@ import android.os.Build
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import java.security.MessageDigest
 import java.security.SecureRandom
 import android.util.Base64
@@ -52,7 +53,7 @@ private val Cream = Color(0xFFF6F4EE)
 
 data class Gate(val id: Long, val name: String, val phone: String, val lat: Double?, val lon: Double?, val radius: Int, val autoEnabled: Boolean)
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent { AuthenticationGate(activity = this) }
@@ -60,7 +61,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun AuthenticationGate(activity: ComponentActivity) {
+private fun AuthenticationGate(activity: FragmentActivity) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("gate_security", android.content.Context.MODE_PRIVATE) }
     var unlocked by remember { mutableStateOf(false) }
